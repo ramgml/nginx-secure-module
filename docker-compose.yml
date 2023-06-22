@@ -1,0 +1,11 @@
+version: "3.4"
+
+services:
+  nginx:
+    build:
+      context: .
+    volumes:
+      - ./examples:/opt/static
+      - ./examples/nginx.conf:/usr/local/nginx/conf/nginx.conf
+    ports:
+      - "3030:80"

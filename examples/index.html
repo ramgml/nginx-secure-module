@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Dash.js Rocks</title>
+        <style>
+            /* video {
+                width: 1024px;
+                height: 720px;
+            } */
+        </style>
+        <link rel="stylesheet" type="text/css" href="/controlbar.css" media="screen" />
+
+    </head>
+    <body>
+        <!-- <div class="dash-video-player">
+            <div class="videoContainer" id="videoContainer">
+                <video 
+                preload="auto" 
+                controls="true"
+                ></video>
+            </div>
+        </div> -->
+
+                <!-- data-src="http://localhost:3030/dash/devito,480p.mp4,720p.mp4,.en_US.vtt,.urlset/manifest.mpd" -->
+        <div class="dash-video-player ">
+            <div class="videoContainer" id="videoContainer">
+                <video preload="auto" 
+                data-src="http://localhost:3030/dash/123/000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+                ></video>
+                <div id="videoController" class="video-controller unselectable">
+                    <div id="playPauseBtn" class="btn-play-pause" title="Play/Pause">
+                        <span id="iconPlayPause" class="icon-play"></span>
+                    </div>
+                    <span id="videoTime" class="time-display">00:00:00</span>
+                    <div id="fullscreenBtn" class="btn-fullscreen control-icon-layout" title="Fullscreen">
+                        <span class="icon-fullscreen-enter"></span>
+                    </div>
+                    <div id="bitrateListBtn" class="control-icon-layout" title="Bitrate List">
+                        <span class="icon-bitrate"></span>
+                    </div>
+                    <input type="range" id="volumebar" class="volumebar" value="1" min="0" max="1" step=".01">
+                    <div id="muteBtn" class="btn-mute control-icon-layout" title="Mute">
+                        <span id="iconMute" class="icon-mute-off"></span>
+                    </div>
+                    <div id="trackSwitchBtn" class="control-icon-layout" title="A/V Tracks">
+                        <span class="icon-tracks"></span>
+                    </div>
+                    <div id="captionBtn" class="btn-caption control-icon-layout" title="Closed Caption">
+                        <span class="icon-caption"></span>
+                    </div>
+                    <span id="videoDuration" class="duration-display">00:00:00</span>
+                    <div class="seekContainer">
+                        <div id="seekbar" class="seekbar seekbar-complete">
+                            <div id="seekbar-buffer" class="seekbar seekbar-buffer"></div>
+                            <div id="seekbar-play" class="seekbar seekbar-play"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <strong>Reported bitrate:</strong>
+            <span id="reportedBitrate"></span>
+            <br>
+            <strong>Buffer level:</strong>
+            <span id="bufferLevel"></span>
+            <div id="chrome-only">
+                <strong>Calculated bitrate:</strong>
+                <span id="calculatedBitrate"></span>
+            </div>
+            <strong>Framerate:</strong>
+            <span id="framerate"></span>    
+            <br>
+            <strong>Resolution:</strong>
+            <span id="resolution"></span>
+        </div>
+    <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+    <script src="/ControlBar.js"></script>
+    <script src="/LowestBitrateRule.js"></script>
+    <script>
+        (function() {
+            var video = document.querySelector("video");
+            var url = video.getAttribute('data-src');
+            var player = dashjs.MediaPlayer().create();
+
+            player.updateSettings({
+                streaming: {
+                    abr: {
+                        // initialBitrate: { audio: -1, video: 720},
+                        // autoSwitchBitrate: { audio: true, video: false},
+                        // maxBitrate: { audio: -1, video: 720},
+                        // minBitrate: { audio: -1, video: 360},
+                        // 'useDefaultABRRules': false,
+                    }
+                }
+            });
+
+            // player.addABRCustomRule('qualitySwitchRules', 'LowestBitrateRule', LowestBitrateRule);
+
+            player.initialize(video, url, true);
+
+            var controlbar = new ControlBar(player);
+            controlbar.initialize();
+
+            // var eventPoller = setInterval(function () {
+            //     var stream = player.getActiveStream();
+            //     console.log(stream);
+            //     // var info = stream.getStreamInfo();
+            //     // console.log(info);
+            //     var bitrateList = stream.getBitrateListFor('media')
+            //     console.log(bitrateList);
+
+            // }, 1000);
+            player.on(dashjs.MediaPlayer.events["PLAYBACK_ENDED"], function () {
+                clearInterval(eventPoller);
+                clearInterval(bitrateCalculator);
+            });
+
+            var eventPoller = setInterval(function () {
+                var streamInfo = player.getActiveStream().getStreamInfo();
+                var dashMetrics = player.getDashMetrics();
+                var dashAdapter = player.getDashAdapter();
+
+                if (dashMetrics && streamInfo) {
+                    const periodIdx = streamInfo.index;
+                    var repSwitch = dashMetrics.getCurrentRepresentationSwitch('video', true);
+                    var bufferLevel = dashMetrics.getCurrentBufferLevel('video', true);
+                    var bitrate = repSwitch ? Math.round(dashAdapter.getBandwidthForRepresentation(repSwitch.to, periodIdx) / 1000) : NaN;
+                    var adaptation = dashAdapter.getAdaptationForType(periodIdx, 'video', streamInfo);
+                    var currentRep = adaptation.Representation_asArray.find(function (rep) {
+                        return rep.id === repSwitch.to
+                    })
+                    var frameRate = currentRep.frameRate;
+                    var resolution = currentRep.width + 'x' + currentRep.height;
+                    document.getElementById('bufferLevel').innerText = bufferLevel + " secs";
+                    document.getElementById('framerate').innerText = frameRate + " fps";
+                    document.getElementById('reportedBitrate').innerText = bitrate + " Kbps";
+                    document.getElementById('resolution').innerText = resolution;
+                }
+            }, 1000);
+
+            if (video.webkitVideoDecodedByteCount !== undefined) {
+                var lastDecodedByteCount = 0;
+                const bitrateInterval = 5;
+                var bitrateCalculator = setInterval(function () {
+                    var calculatedBitrate = (((video.webkitVideoDecodedByteCount - lastDecodedByteCount) / 1000) * 8) / bitrateInterval;
+                    document.getElementById('calculatedBitrate').innerText = Math.round(calculatedBitrate) + " Kbps";
+                    lastDecodedByteCount = video.webkitVideoDecodedByteCount;
+                }, bitrateInterval * 1000);
+            } else {
+                document.getElementById('chrome-only').style.display = "none";
+            }
+
+    })();
+    </script>
+    </body>
+
+</html>
